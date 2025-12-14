@@ -8,13 +8,33 @@ app = Flask(__name__)
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
 def get_conn():
-    return psycopg2.connect(DATABASE_URL)
+    if not DATABASE_URL:
+        raise Exception("DATABASE_URL no está configurada en Render (Environment Variables).")
+    return psycopg2.connect(DATABASE_URL, sslmode="require")
+
+def ensure_table():
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS installations (
+          id TEXT PRIMARY KEY,
+          name TEXT,
+          desired_state TEXT DEFAULT 'ALLOW',
+          last_seen TIMESTAMP
+        );
+    """)
+    conn.commit()
+    cur.close()
+    conn.close()
+
+# Crea la tabla al arrancar
+ensure_table()
 
 @app.route("/")
 def index():
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute("SELECT id, name, desired_state, last_seen FROM installations ORDER BY id")
+    cur.execute("SELECT id, name, desired_state, last_seen FROM installations ORDER BY last_seen DESC NULLS LAST")
     rows = cur.fetchall()
     cur.close()
     conn.close()
@@ -41,8 +61,10 @@ def index():
 
 @app.route("/api/checkin", methods=["POST"])
 def checkin():
-    data = request.json
-    installation_id = data["installationId"]
+    data = request.get_json(force=True)
+    installation_id = data.get("installationId")
+    if not installation_id:
+        return jsonify({"error": "installationId requerido"}), 400
 
     conn = get_conn()
     cur = conn.cursor()
@@ -60,13 +82,13 @@ def checkin():
     cur.close()
     conn.close()
 
-    return jsonify({
-        "desiredState": state,
-        "leaseDays": 7
-    })
+    return jsonify({"desiredState": state, "leaseDays": 7})
 
 @app.route("/set/<id>/<state>")
 def set_state(id, state):
+    if state not in ("ALLOW", "DENY"):
+        return "Estado inválido", 400
+
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("UPDATE installations SET desired_state=%s WHERE id=%s", (state, id))
