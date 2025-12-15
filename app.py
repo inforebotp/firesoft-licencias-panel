@@ -1,3 +1,29 @@
+@app.route("/")
+@require_auth
+def index():
+    ...
+@app.route("/set/<id>/<state>")
+@require_auth
+def set_state(id, state):
+    ...
+
+from functools import wraps
+from flask import Response
+
+ADMIN_USER = os.environ.get("ADMIN_USER", "")
+ADMIN_PASS = os.environ.get("ADMIN_PASS", "")
+
+def require_auth(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        auth = request.authorization
+        if not auth or auth.username != ADMIN_USER or auth.password != ADMIN_PASS:
+            return Response(
+                "Acceso restringido", 401,
+                {"WWW-Authenticate": 'Basic realm="Firesoft Panel"'}
+            )
+        return f(*args, **kwargs)
+    return decorated
 from flask import Flask, request, jsonify, render_template_string
 import psycopg2
 import os
